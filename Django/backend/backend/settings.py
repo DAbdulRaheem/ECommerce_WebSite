@@ -147,5 +147,5 @@ cloudinary.config(
     api_secret=os.getenv("CLOUD_API_SECRET")
 )
 
-SECRET_KEY = os.getenv("SECRET_KEY")
+SECRET_KEY= 'django-insecure-*+214utn=^dx6(c^or$k#!5-is$kh&m7g-(=d05367u=-r89^f'
 
