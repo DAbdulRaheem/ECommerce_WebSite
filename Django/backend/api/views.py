@@ -333,8 +333,25 @@ def cart_view(request):
     cart, created = Cart.objects.get_or_create(user=user)
 
     if request.method == "GET":
-        cart_items = cart.items.select_related('product').all()
-        items = [{"id":item.id, "product": item.product.id, "quantity": item.quantity} for item in cart_items]
+        # 1. Fetch Product and Images efficiently
+        cart_items = cart.items.select_related('product').prefetch_related('product__images').all()
+        
+        items = []
+        for item in cart_items:
+            # 2. Get the first image safely
+            first_img = item.product.images.first()
+            img_url = first_img.image_url if first_img else None
+            
+            # 3. Construct the full data object
+            items.append({
+                "id": item.id,
+                "product_id": item.product.id,
+                "title": item.product.title,   
+                "price": float(item.product.price),
+                "image": img_url,        
+                "quantity": item.quantity
+            })
+            
         return JsonResponse({"cart_id": cart.id, "items": items})
 
     elif request.method == "POST":
