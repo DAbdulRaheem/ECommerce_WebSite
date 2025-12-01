@@ -64,6 +64,10 @@ MIDDLEWARE = [
 # CORS_ALLOWED_ORIGINS = [
 #     "http://localhost:3000",'*',
 # ]
+CORS_ALLOWED_ORIGINS = [
+    "http://localhost:5173",  # Your local React dev server
+    "https://ecommerce-website-40il.onrender.com", # Your production URL
+]
 
 ROOT_URLCONF = 'backend.urls'
 
