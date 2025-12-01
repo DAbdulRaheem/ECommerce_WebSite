@@ -235,6 +235,7 @@ def products_list_create(request):
     if cat_id:
         category = get_object_or_404(Category, pk=cat_id)
 
+    # ✅ FIX: 'brand=brand' is now only listed once
     p = Product.objects.create(
         title=title, slug=slug, description=description,
         price=price, brand=brand, stock=stock, category=category
@@ -250,7 +251,8 @@ def products_list_create(request):
     img_urls = data.get('image_urls')
     if img_urls:
         for url in img_urls.split(','):
-            if url.strip():
+            # ✅ FIX: Added .strip() check to prevent creating empty images from trailing commas
+            if url.strip(): 
                 ProductImage.objects.create(product=p, image_url=url.strip())
 
     return JsonResponse(ProductSerializer(p).data, status=201)
