@@ -95,7 +95,7 @@ def user_login(request):
     if not user:
         return JsonResponse({'error':'Invalid credentials'}, status=401)
     token = generate_token(user)
-    return JsonResponse({'token': token, 'username': user.username})
+    return JsonResponse({'token': token, 'username': user.username,'is_staff': user.is_staff})
 
 @csrf_exempt
 def admin_register(request):
@@ -135,7 +135,7 @@ def admin_login(request):
     if not user or not user.is_staff:
         return JsonResponse({'error':'Invalid admin credentials'}, status=401)
     token = generate_token(user)
-    return JsonResponse({'token': token, 'username': user.username})
+    return JsonResponse({'token': token, 'username': user.username,'is_staff': user.is_staff})
 
 # ----------------------------
 # CATEGORY endpoints
