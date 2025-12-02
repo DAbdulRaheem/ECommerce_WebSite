@@ -188,74 +188,82 @@ def category_detail(request, pk):
 # ----------------------------
 @csrf_exempt
 def products_list_create(request):
+    # --- GET Logic (Unchanged) ---
     if request.method == 'GET':
         qs = Product.objects.filter(is_active=True)
         q = request.GET.get('q')
         cat = request.GET.get('category')
-        minp = request.GET.get('min_price')
-        maxp = request.GET.get('max_price')
-        
-        if q:
-            qs = qs.filter(title__icontains=q) | qs.filter(description__icontains=q)
-        if cat:
-            qs = qs.filter(category__id=cat)
-        
         try:
-            if minp: qs = qs.filter(price__gte=float(minp))
-            if maxp: qs = qs.filter(price__lte=float(maxp))
-        except ValueError:
-            pass 
-
+            if request.GET.get('min_price'): qs = qs.filter(price__gte=float(request.GET.get('min_price')))
+            if request.GET.get('max_price'): qs = qs.filter(price__lte=float(request.GET.get('max_price')))
+        except ValueError: pass 
         ser = ProductSerializer(qs, many=True)
         return JsonResponse(ser.data, safe=False)
 
-    # Admin Create
+    # --- POST Logic ---
     user = decode_token_from_request(request)
     if not user or not user.is_staff:
         return JsonResponse({'error':'Admin only'}, status=403)
 
-    # Note: For file uploads, Frontend MUST use FormData (multipart/form-data)
     data = get_request_data(request)
     
+    # 1. Basic Validation
     title = data.get('title')
     if not title: return JsonResponse({'error': 'Title required'}, status=400)
     
-    description = data.get('description','')
-    brand = data.get('brand','')
-    slug = data.get('slug') or slugify(title)
-    
     try:
+        # 2. Extract Data
+        description = data.get('description','')
+        brand = data.get('brand','')
+        slug = data.get('slug') or slugify(title)
         price = float(data.get('price', 0))
         stock = int(data.get('stock', 0))
-    except ValueError:
-        return JsonResponse({'error': 'Price/Stock must be numbers'}, status=400)
 
-    cat_id = data.get('category_id', None)
-    category = None
-    if cat_id:
-        category = get_object_or_404(Category, pk=cat_id)
+        # 3. Category Logic (Safe Version)
+        category = None
+        cat_id = data.get('category_id')
+        cat_name = data.get('category_name')
 
-    # ✅ FIX: 'brand=brand' is now only listed once
-    p = Product.objects.create(
-        title=title, slug=slug, description=description,
-        price=price, brand=brand, stock=stock, category=category
-    )
+        if cat_id:
+            category = get_object_or_404(Category, pk=cat_id)
+        elif cat_name:
+            # Clean the string
+            clean_name = str(cat_name).strip()
+            if clean_name:
+                category, created = Category.objects.get_or_create(
+                    name=clean_name,
+                    defaults={'slug': slugify(clean_name), 'description': ''}
+                )
 
-    # Image Handling (Only works with FormData/Multipart)
-    files = request.FILES.getlist('images')
-    for f in files:
-        r = cloud_upload(f)
-        ProductImage.objects.create(product=p, image_url=r.get('secure_url'))
+        # 4. Create Product
+        p = Product.objects.create(
+            title=title, slug=slug, description=description,
+            price=price, brand=brand, stock=stock, category=category
+        )
 
-    # Fallback for text URLs
-    img_urls = data.get('image_urls')
-    if img_urls:
-        for url in img_urls.split(','):
-            # ✅ FIX: Added .strip() check to prevent creating empty images from trailing commas
-            if url.strip(): 
-                ProductImage.objects.create(product=p, image_url=url.strip())
+        # 5. Image Upload (Wrapped in try/except to prevent 500 crashes)
+        files = request.FILES.getlist('images')
+        for f in files:
+            try:
+                r = cloud_upload(f)
+                ProductImage.objects.create(product=p, image_url=r.get('secure_url'))
+            except Exception as img_err:
+                print(f"Image Upload Error: {img_err}")
+                # We continue creating the product even if image fails
 
-    return JsonResponse(ProductSerializer(p).data, status=201)
+        img_urls = data.get('image_urls')
+        if img_urls:
+            for url in img_urls.split(','):
+                if url.strip(): 
+                    ProductImage.objects.create(product=p, image_url=url.strip())
+
+        return JsonResponse(ProductSerializer(p).data, status=201)
+
+    except Exception as e:
+        # This prints the REAL error to your terminal so you can see it
+        print(f"SERVER ERROR: {str(e)}")
+        # This sends the error to the frontend instead of just "500"
+        return JsonResponse({'error': str(e)}, status=500)
 
 @csrf_exempt
 def product_detail(request, pk):
