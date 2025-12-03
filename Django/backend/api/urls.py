@@ -20,6 +20,11 @@ urlpatterns = [
     # --- Cart ---
     path('cart/', views.cart_view, name='cart_view'), # GET (view), POST (add), DELETE (clear)
     path('cart/items/<int:pk>/', views.cart_item_detail, name='cart_item_detail'), # PUT (update qty), DELETE (remove item)
+    
+    # --- Wishlist ---
+    path('wishlist/', views.wishlist_view, name='wishlist_view'), # GET
+    path('wishlist/add/', views.add_to_wishlist, name='wishlist_add'), # POST
+    path('wishlist/remove/<int:product_id>/', views.remove_from_wishlist, name='wishlist_remove'), # DELETE
 
     # --- Addresses ---
     path('addresses/', views.addresses, name='address_list_create'),

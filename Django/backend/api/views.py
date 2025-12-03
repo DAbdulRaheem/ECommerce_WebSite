@@ -10,9 +10,9 @@ from cloudinary.uploader import upload as cloud_upload
 import jwt, datetime, os, json
 
 from .models import (Category, Product, ProductImage, UserProfile, Address,
-                     Cart, CartItem, Order, OrderItem, Review)
+                     Cart, CartItem, Wishlist, WishlistItem, Order, OrderItem, Review)
 from .serializers import (CategorySerializer, ProductSerializer, ProductImageSerializer,
-                          AddressSerializer, CartSerializer, CartItemSerializer,
+                          AddressSerializer, CartSerializer, CartItemSerializer, WishlistItemSerializer,
                           OrderSerializer, ReviewSerializer)
 
 # ----------------------------
@@ -410,6 +410,64 @@ def cart_item_detail(request, pk):
         item.save()
         return JsonResponse({"id": item.id, "product": item.product.id, "quantity": item.quantity})
     elif request.method == "DELETE":
+        item.delete()
+        return JsonResponse({"message": "Item removed"})
+    
+# ----------------------------
+# WISHLIST ENDPOINTS
+# ----------------------------
+
+@csrf_exempt
+def wishlist_view(request):
+    user = decode_token_from_request(request)
+    if not user:
+        return JsonResponse({"error": "Authentication required"}, status=401)
+
+    # Get or create the user's wishlist
+    wishlist, created = Wishlist.objects.get_or_create(user=user)
+
+    if request.method == "GET":
+        # Return all items in the wishlist
+        items = wishlist.items.select_related('product').all()
+        # Note: We need to serialize this manually or use DRF serializer
+        # Using the Serializer we created in step 2:
+        serializer = WishlistItemSerializer(items, many=True)
+        return JsonResponse(serializer.data, safe=False)
+
+@csrf_exempt
+def add_to_wishlist(request):
+    user = decode_token_from_request(request)
+    if not user:
+        return JsonResponse({"error": "Authentication required"}, status=401)
+    
+    if request.method == "POST":
+        data = get_request_data(request)
+        product_id = data.get("product_id")
+        
+        if not product_id:
+            return JsonResponse({"error": "Product ID required"}, status=400)
+
+        wishlist, _ = Wishlist.objects.get_or_create(user=user)
+        product = get_object_or_404(Product, pk=product_id)
+
+        # Create item if it doesn't exist already
+        item, created = WishlistItem.objects.get_or_create(wishlist=wishlist, product=product)
+        
+        if created:
+            return JsonResponse({"message": "Added to wishlist"})
+        else:
+            return JsonResponse({"message": "Item already in wishlist"}, status=200)
+
+@csrf_exempt
+def remove_from_wishlist(request, product_id):
+    user = decode_token_from_request(request)
+    if not user:
+        return JsonResponse({"error": "Authentication required"}, status=401)
+
+    if request.method == "DELETE":
+        wishlist = get_object_or_404(Wishlist, user=user)
+        # Find the item by Product ID inside this user's wishlist
+        item = get_object_or_404(WishlistItem, wishlist=wishlist, product_id=product_id)
         item.delete()
         return JsonResponse({"message": "Item removed"})
 
