@@ -188,7 +188,7 @@ def category_detail(request, pk):
 # ----------------------------
 @csrf_exempt
 def products_list_create(request):
-    # --- GET Logic (Unchanged) ---
+    # --- GET Logic (Public) ---
     if request.method == 'GET':
         qs = Product.objects.filter(is_active=True)
         q = request.GET.get('q')
@@ -200,34 +200,31 @@ def products_list_create(request):
         ser = ProductSerializer(qs, many=True)
         return JsonResponse(ser.data, safe=False)
 
-    # --- POST Logic ---
+    # --- POST Logic (Admin) ---
     user = decode_token_from_request(request)
     if not user or not user.is_staff:
         return JsonResponse({'error':'Admin only'}, status=403)
 
-    data = get_request_data(request)
-    
-    # 1. Basic Validation
-    title = data.get('title')
-    if not title: return JsonResponse({'error': 'Title required'}, status=400)
-    
+    # Wrap everything in try/except to catch 500 errors
     try:
-        # 2. Extract Data
+        data = get_request_data(request)
+        
+        # 1. Validation
+        title = data.get('title')
+        if not title: return JsonResponse({'error': 'Title required'}, status=400)
+        
+        # 2. Extract Data safely
         description = data.get('description','')
         brand = data.get('brand','')
         slug = data.get('slug') or slugify(title)
         price = float(data.get('price', 0))
         stock = int(data.get('stock', 0))
 
-        # 3. Category Logic (Safe Version)
+        # 3. Category Logic
         category = None
-        cat_id = data.get('category_id')
         cat_name = data.get('category_name')
-
-        if cat_id:
-            category = get_object_or_404(Category, pk=cat_id)
-        elif cat_name:
-            # Clean the string
+        
+        if cat_name:
             clean_name = str(cat_name).strip()
             if clean_name:
                 category, created = Category.objects.get_or_create(
@@ -235,29 +232,23 @@ def products_list_create(request):
                     defaults={'slug': slugify(clean_name), 'description': ''}
                 )
 
-        # 4. Create Product
-        p = Product.objects.create(
-            title=title, slug=slug, description=description,
-            price=price, brand=brand, stock=stock, category=category
-        )
-        
-        # !!!Created By !!!
+        # 4. Create Product (With created_by)
         p = Product.objects.create(
             title=title, slug=slug, description=description,
             price=price, brand=brand, stock=stock, category=category,
-            created_by=user # <--- Auto-assign logged in admin
+            created_by=user  # <--- This requires the migration!
         )
 
-        # 5. Image Upload (Wrapped in try/except to prevent 500 crashes)
+        # 5. Image Upload
         files = request.FILES.getlist('images')
         for f in files:
             try:
                 r = cloud_upload(f)
                 ProductImage.objects.create(product=p, image_url=r.get('secure_url'))
-            except Exception as img_err:
-                print(f"Image Upload Error: {img_err}")
-                # We continue creating the product even if image fails
+            except Exception as img_e:
+                print(f"Image Upload Failed: {img_e}")
 
+        # Text Image URLs
         img_urls = data.get('image_urls')
         if img_urls:
             for url in img_urls.split(','):
@@ -267,10 +258,10 @@ def products_list_create(request):
         return JsonResponse(ProductSerializer(p).data, status=201)
 
     except Exception as e:
-        # This prints the REAL error to your terminal so you can see it
-        print(f"SERVER ERROR: {str(e)}")
-        # This sends the error to the frontend instead of just "500"
-        return JsonResponse({'error': str(e)}, status=500)
+        # 👇 THIS PRINTS THE REAL ERROR TO YOUR TERMINAL
+        print(f"SERVER ERROR ===> {str(e)}")
+        # Returns the specific error to Frontend instead of generic 500
+        return JsonResponse({'error': f"Server Error: {str(e)}"}, status=500)
 
 @csrf_exempt
 def product_detail(request, pk):
@@ -720,3 +711,5 @@ def product_reviews(request, product_id):
             for r in reviews
         ]
         return JsonResponse(data, safe=False)
+    
+    
