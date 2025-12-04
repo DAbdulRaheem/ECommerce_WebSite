@@ -16,6 +16,7 @@ urlpatterns = [
     path('products/', views.products_list_create, name='products_list_create'),
     path('products/<int:pk>/', views.product_detail, name='product_detail'),
     path('products/images/<int:pk>/', views.product_image_detail, name='product_image_detail'),
+    path('products/my/', views.get_my_products, name='my_products'), # Admin's Products
     
     # --- Cart ---
     path('cart/', views.cart_view, name='cart_view'), # GET (view), POST (add), DELETE (clear)

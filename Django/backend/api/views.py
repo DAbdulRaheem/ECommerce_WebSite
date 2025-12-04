@@ -42,8 +42,8 @@ JWT_EXP_HOURS = 24
 def generate_token(user):
     payload = {
         'user_id': user.id,
-        'exp': datetime.datetime.utcnow() + datetime.timedelta(hours=JWT_EXP_HOURS),
-        'iat': datetime.datetime.utcnow(),
+        'exp': datetime.datetime.now() + datetime.timedelta(hours=JWT_EXP_HOURS),
+        'iat': datetime.datetime.now(),
     }
     return jwt.encode(payload, JWT_SECRET, algorithm=JWT_ALGO)
 
@@ -240,6 +240,13 @@ def products_list_create(request):
             title=title, slug=slug, description=description,
             price=price, brand=brand, stock=stock, category=category
         )
+        
+        # !!!Created By !!!
+        p = Product.objects.create(
+            title=title, slug=slug, description=description,
+            price=price, brand=brand, stock=stock, category=category,
+            created_by=user # <--- Auto-assign logged in admin
+        )
 
         # 5. Image Upload (Wrapped in try/except to prevent 500 crashes)
         files = request.FILES.getlist('images')
@@ -274,6 +281,10 @@ def product_detail(request, pk):
     user = decode_token_from_request(request)
     if not user or not user.is_staff:
         return JsonResponse({'error':'Admin only'}, status=403)
+    
+    # Only allow the ADMIN to edit/delete
+    if p.created_by and p.created_by != user and not user.is_superuser:
+        return JsonResponse({'error': 'You can only edit products you created'}, status=403)
         
     if request.method == 'PUT':
         data = get_request_data(request)
@@ -310,6 +321,18 @@ def product_detail(request, pk):
     if request.method == 'DELETE':
         p.delete()
         return JsonResponse({'message':'deleted'})
+    
+# For Admin's Product Details
+@csrf_exempt
+def get_my_products(request):
+    user = decode_token_from_request(request)
+    if not user or not user.is_staff:
+        return JsonResponse({'error':'Admin only'}, status=403)
+    
+    # Filter products where created_by == current_user
+    qs = Product.objects.filter(created_by=user).order_by('-created_at')
+    ser = ProductSerializer(qs, many=True)
+    return JsonResponse(ser.data, safe=False)
     
 @csrf_exempt
 def product_image_detail(request, pk):
