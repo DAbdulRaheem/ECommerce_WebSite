@@ -35,9 +35,6 @@ urlpatterns = [
     path('orders/create/', views.create_order, name='create_order'), # Checkout endpoint
     path('orders/', views.orders_list, name='orders_list'), # Order history
     path('orders/<int:pk>/', views.order_detail, name='order_detail'),
-    
-    # --- Payment ---
-    path('stripe/create-intent/', views.create_stripe_payment_intent, name='stripe_intent'),
 
     # --- Reviews ---
     path('reviews/add/', views.add_review, name='add_review'),

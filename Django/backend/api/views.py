@@ -7,8 +7,6 @@ from django.views.decorators.csrf import csrf_exempt
 from django.http import JsonResponse
 from django.db import transaction
 from cloudinary.uploader import upload as cloud_upload
-import stripe 
-from django.conf import settings
 import jwt, datetime, os, json
 
 from .models import (Category, Product, ProductImage, UserProfile, Address,
@@ -486,7 +484,6 @@ def remove_from_wishlist(request, product_id):
         item = get_object_or_404(WishlistItem, wishlist=wishlist, product_id=product_id)
         item.delete()
         return JsonResponse({"message": "Item removed"})
-    
 
 # ----------------------------
 # ADDRESS
@@ -555,13 +552,11 @@ def create_order(request):
     
     data = get_request_data(request)
     address_id = data.get("address_id")
-
     if not address_id:
         return JsonResponse({"error": "Address ID required"}, status=400)
     
     address = get_object_or_404(Address, pk=address_id, user=user)
     cart_items = cart.items.select_related('product').all()
-    transaction_id = data.get("transaction_id")
     
     total = sum([item.product.price * item.quantity for item in cart_items])
     
@@ -638,43 +633,6 @@ def order_detail(request, pk):
         order.delete()
         return JsonResponse({"message": "order deleted"})
 
-# ----------------------------
-# PAYMENT   
-# ----------------------------
-
-@csrf_exempt
-def create_stripe_payment_intent(request):
-    user = decode_token_from_request(request)
-    if not user:
-        return JsonResponse({"error": "Authentication required"}, status=401)
-
-    if request.method == "POST":
-        try:
-            # 1. Calculate Cart Total Securely (Do NOT trust frontend amount)
-            cart = getattr(user, 'cart', None)
-            if not cart or not cart.items.exists():
-                return JsonResponse({"error": "Cart is empty"}, status=400)
-            
-            cart_items = cart.items.all()
-            total_amount = sum([item.product.price * item.quantity for item in cart_items])
-            
-            # 2. Convert to Cents (Stripe Requirement)
-            # Example: $10.00 -> 1000 cents
-            amount_in_cents = int(total_amount * 100)
-
-            # 3. Create Intent on Stripe
-            intent = stripe.PaymentIntent.create(
-                amount=amount_in_cents,
-                currency='usd', # Change to 'inr' if needed
-                metadata={'user_id': user.id}
-            )
-            
-            # 4. Return Client Secret to Frontend
-            return JsonResponse({
-                'clientSecret': intent['client_secret']
-            })
-        except Exception as e:
-            return JsonResponse({'error': str(e)}, status=500)
 # ----------------------------
 # REVIEWS
 # ----------------------------
