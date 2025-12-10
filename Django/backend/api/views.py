@@ -1,4 +1,4 @@
-from django.shortcuts import get_object_or_404
+from django.shortcuts import get_object_or_404, redirect
 from django.contrib.auth.models import User
 from django.contrib.auth import authenticate
 from django.conf import settings
@@ -8,6 +8,8 @@ from django.http import JsonResponse
 from django.db import transaction
 from cloudinary.uploader import upload as cloud_upload
 import jwt, datetime, os, json
+import hashlib
+import uuid
 
 from .models import (Category, Product, ProductImage, UserProfile, Address,
                      Cart, CartItem, Wishlist, WishlistItem, Order, OrderItem, Review)
@@ -91,7 +93,7 @@ def user_login(request):
     username = data.get('username')
     password = data.get('password')
     
-    user = authenticate(username=username, password=password)
+    user = authenticate(username=username, password=password)   
     if not user:
         return JsonResponse({'error':'Invalid credentials'}, status=401)
     token = generate_token(user)
@@ -632,6 +634,107 @@ def order_detail(request, pk):
     if request.method == "DELETE":
         order.delete()
         return JsonResponse({"message": "order deleted"})
+
+# ----------------------------
+# PAYMENTS
+# ----------------------------
+@csrf_exempt
+def initiate_payu_payment(request):
+    user = decode_token_from_request(request)
+    if not user:
+        return JsonResponse({"error": "Authentication required"}, status=401)
+
+    if request.method == "POST":
+        # 1. Calculate Amount
+        cart = getattr(user, 'cart', None)
+        if not cart or not cart.items.exists():
+            return JsonResponse({"error": "Cart is empty"}, status=400)
+            
+        cart_items = cart.items.all()
+        total_amount = sum([item.product.price * item.quantity for item in cart_items])
+        
+        # 2. Prepare Data
+        txnid = f"Txn{uuid.uuid4().hex[:10]}"
+        productinfo = "MyShop Purchase"
+        firstname = user.username
+        email = user.email or "test@example.com"
+        udf1 = str(user.id)
+        
+        # 3. Generate Hash (Crucial Step!)
+        # Formula: key|txnid|amount|productinfo|firstname|email|||||||||||salt
+        hash_string = f"{settings.PAYU_MERCHANT_KEY}|{txnid}|{total_amount}|{productinfo}|{firstname}|{email}|{udf1}||||||||||{settings.PAYU_MERCHANT_SALT}"
+        hash_value = hashlib.sha512(hash_string.encode('utf-8')).hexdigest()
+        # 4. Return params to Frontend (Frontend will submit these as a Form)
+        return JsonResponse({
+            "key": settings.PAYU_MERCHANT_KEY,
+            "txnid": txnid,
+            "amount": total_amount,
+            "productinfo": productinfo,
+            "firstname": firstname,
+            "email": email,
+            "udf1": udf1,
+            "phone": "9999999999",
+            "surl": "http://127.0.0.1:8000/api/payu/success/", # Success URL
+            "furl": "http://127.0.0.1:8000/api/payu/failure/", # Failure URL
+            "hash": hash_value,
+            "action": settings.PAYU_BASE_URL,
+            "address_id": address_id,
+            "udf2": udf2
+
+        })
+
+@csrf_exempt
+def payu_success(request):
+    if request.method == "POST":
+        data = request.POST
+        
+        # 1. Retrieve the User ID from 'udf1'
+        user_id = data.get('udf1')
+        user = get_object_or_404(User, pk=user_id)
+        
+        # 2. Get the User's Cart
+        cart = getattr(user, 'cart', None)
+        if not cart or not cart.items.exists():
+            # If cart is already empty, just redirect
+            return redirect("http://localhost:5173/success")
+
+        # 3. Create the Order
+        # Note: You might want to grab a real address here. 
+        # For now, we pick the first address or creating a dummy placeholder if none exists.
+        address = Address.objects.filter(user=user).first()
+        
+        with transaction.atomic():
+            total = sum([item.product.price * item.quantity for item in cart.items.all()])
+            
+            order = Order.objects.create(
+                user=user, 
+                address=address, # Ensure address is not None in production
+                total_amount=total,
+                status="Paid", # Mark as paid
+                # You can store the PayU transaction ID if your model has the field
+                # transaction_id=data.get('txnid') 
+            )
+            
+            # Create Order Items
+            items = [
+                OrderItem(
+                    order=order, 
+                    product=item.product, 
+                    quantity=item.quantity, 
+                    unit_price=item.product.price
+                ) for item in cart.items.all()
+            ]
+            OrderItem.objects.bulk_create(items)
+            
+            # 4. 🗑️ CLEAR THE CART (The specific request)
+            cart.items.all().delete()
+
+        # 5. Redirect to Frontend Orders Page
+        return redirect("http://localhost:5173/success")
+
+@csrf_exempt
+def payu_failure(request):
+    return redirect("http://localhost:5173/cart")
 
 # ----------------------------
 # REVIEWS

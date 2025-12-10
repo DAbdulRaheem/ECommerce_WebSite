@@ -159,4 +159,7 @@ cloudinary.config(
 
 SECRET_KEY= os.getenv("SECRET_KEY")
 
-
+# PayU Settings
+PAYU_MERCHANT_KEY = os.getenv("KEY")
+PAYU_MERCHANT_SALT = os.getenv("SALT")
+PAYU_BASE_URL = "https://test.payu.in/_payment"

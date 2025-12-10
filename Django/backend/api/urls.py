@@ -32,9 +32,14 @@ urlpatterns = [
     path('addresses/<int:pk>/', views.address_detail, name='address_detail'),
 
     # --- Orders ---
-    path('orders/create/', views.create_order, name='create_order'), # Checkout endpoint
+    path('orders/create/', views.create_order, name='create_order'),# Create order from cart
     path('orders/', views.orders_list, name='orders_list'), # Order history
     path('orders/<int:pk>/', views.order_detail, name='order_detail'),
+
+    # --- Payments ---
+    path('payu/initiate/', views.initiate_payu_payment, name='payu_init'), # Initiate PayU Payment
+    path('payu/success/', views.payu_success, name='payu_success'), # PayU Success Callback
+    path('payu/failure/', views.payu_failure, name='payu_failure'), # PayU Failure Callback
 
     # --- Reviews ---
     path('reviews/add/', views.add_review, name='add_review'),
