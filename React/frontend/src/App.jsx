@@ -14,6 +14,8 @@ import AdminDashboard from './pages/admin/AdminDashboard';
 import AdminRegister from './pages/auth/AdminRegister';
 import AdminLogin from './pages/auth/AdminLogin';
 import Wishlist from './pages/shop/Wishlist';
+import Checkout from './pages/shop/Checkout';
+import Success from './Success';
 import Unknown from './unknown';
 
 function App() {
@@ -44,7 +46,9 @@ function App() {
           <Route path="/admin" element={<AdminDashboard />} />
           <Route path="/seller/register" element={<AdminRegister />} />
           <Route path="/seller/login" element={<AdminLogin />} />
+          <Route path="/checkout" element={<Checkout />} />
           <Route path="*" element={<Unknown />} />
+          <Route path="/success" element={<Success />} />
         </Routes>
       </AuthProvider>
       </ThemeProvider>

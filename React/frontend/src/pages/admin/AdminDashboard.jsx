@@ -276,7 +276,7 @@ const AdminDashboard = () => {
 
     return (
         <Container className="mt-4">
-            <h2 className="mb-4">Admin Dashboard</h2>
+            <h2 className="mb-4">Seller's Dashboard</h2>
             
             {/* --- ADD / EDIT FORM --- */}
             <Card className={`p-4 mb-5 shadow-sm border-${isEditing ? 'warning' : 'light'}`}>

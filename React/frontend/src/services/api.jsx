@@ -1,7 +1,7 @@
 import axios from 'axios';
 
 const API_URL = 'http://127.0.0.1:8000/api'; 
-// const API_URL = 'https://ecommerce-website-40il.onrender.com/api'; 
+// const API_URL = 'https://ecommerce-websitee-1oht.onrender.com'; 
 
 const api = axios.create({ baseURL: API_URL });
 
@@ -45,9 +45,18 @@ export const wishlistService = {
     remove: (product_id) => api.delete(`/wishlist/remove/${product_id}/`),
 };
 
+export const paymentService = {
+    initiatePayu: (data) => api.post('/payu/initiate/', data),
+};
+
 export const orderService = {
     create: (address_id) => api.post('/orders/create/', { address_id }),
     getAll: () => api.get('/orders/'),
+};
+
+export const addressService = {
+    getAll: () => api.get('/addresses/'),
+    add: (data) => api.post('/addresses/', data),
 };
 
 export default api;

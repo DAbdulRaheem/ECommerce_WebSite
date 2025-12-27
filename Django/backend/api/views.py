@@ -505,14 +505,15 @@ def addresses(request):
         data = get_request_data(request)
         addr = Address.objects.create(
             user=user,
-            line1=data.get("line1",""),
-            line2=data.get("line2",""),
+            full_name=data.get("full_name", user.username),
+            address_line1=data.get("line1", ""),
+            address_line2=data.get("line2", ""),
             city=data.get("city",""),
             state=data.get("state",""),
-            zip_code=data.get("zip_code",""),
+            postal_code=data.get("zip_code", ""),
             country=data.get("country",""),
         )
-        return JsonResponse({"id": addr.id, "line1": addr.line1, "city": addr.city}, status=201)
+        return JsonResponse({ "id": addr.id, "line1": addr.address_line1,  "city": addr.city }, status=201)
 
 @csrf_exempt
 def address_detail(request, pk):
@@ -554,6 +555,10 @@ def create_order(request):
     
     data = get_request_data(request)
     address_id = data.get("address_id")
+    
+    # 1. Get the Transaction ID sent from Frontend (Dummy or Real)
+    txn_id = data.get("transaction_id") 
+    
     if not address_id:
         return JsonResponse({"error": "Address ID required"}, status=400)
     
@@ -564,7 +569,14 @@ def create_order(request):
     
     try:
         with transaction.atomic():
-            order = Order.objects.create(user=user, address=address, total_amount=total)
+            # 2. Create Order with your specific model fields
+            order = Order.objects.create(
+                user=user, 
+                address=address, 
+                total_amount=total,
+                status='paid', # <--- Change status from 'pending' to 'paid'
+                payment_id=txn_id # <--- Map transaction_id to your 'payment_id' field
+            )
             
             order_items_objs = [
                 OrderItem(
@@ -578,7 +590,12 @@ def create_order(request):
             
             cart.items.all().delete()
             
-        return JsonResponse({"order_id": order.id, "total_amount": total}, status=201)
+        return JsonResponse({
+            "order_id": order.id, 
+            "total_amount": total, 
+            "status": "paid",
+            "payment_id": txn_id
+        }, status=201)
         
     except Exception as e:
         return JsonResponse({"error": "Failed to create order", "details": str(e)}, status=500)
@@ -645,7 +662,14 @@ def initiate_payu_payment(request):
         return JsonResponse({"error": "Authentication required"}, status=401)
 
     if request.method == "POST":
-        # 1. Calculate Amount
+        # 1. Get Data & Validate Address
+        data = get_request_data(request)
+        address_id = data.get('address_id')
+        
+        if not address_id:
+            return JsonResponse({"error": "Address ID is required"}, status=400)
+
+        # 2. Calculate Amount
         cart = getattr(user, 'cart', None)
         if not cart or not cart.items.exists():
             return JsonResponse({"error": "Cart is empty"}, status=400)
@@ -653,34 +677,43 @@ def initiate_payu_payment(request):
         cart_items = cart.items.all()
         total_amount = sum([item.product.price * item.quantity for item in cart_items])
         
-        # 2. Prepare Data
+        # IMPORTANT: Format amount to 2 decimal places string for Hash consistency
+        amount_str = f"{total_amount:.2f}"
+        
+        # 3. Prepare Data
         txnid = f"Txn{uuid.uuid4().hex[:10]}"
         productinfo = "MyShop Purchase"
         firstname = user.username
         email = user.email or "test@example.com"
-        udf1 = str(user.id)
         
-        # 3. Generate Hash (Crucial Step!)
-        # Formula: key|txnid|amount|productinfo|firstname|email|||||||||||salt
-        hash_string = f"{settings.PAYU_MERCHANT_KEY}|{txnid}|{total_amount}|{productinfo}|{firstname}|{email}|{udf1}||||||||||{settings.PAYU_MERCHANT_SALT}"
+        # 4. Set UDFs (User Defined Fields)
+        udf1 = str(user.id)      # Store User ID
+        udf2 = str(address_id)   # Store Address ID
+        
+        # 5. Generate Hash (Crucial Step!)
+        # Sequence: key|txnid|amount|productinfo|firstname|email|udf1|udf2|||||||||salt
+        # Note: We use udf1 and udf2. There are usually 11 pipes after email in generic format.
+        # Since we fill 2 slots, we leave 9 empty pipes before salt.
+        
+        hash_string = f"{settings.PAYU_MERCHANT_KEY}|{txnid}|{amount_str}|{productinfo}|{firstname}|{email}|{udf1}|{udf2}|||||||||{settings.PAYU_MERCHANT_SALT}"
+        
         hash_value = hashlib.sha512(hash_string.encode('utf-8')).hexdigest()
-        # 4. Return params to Frontend (Frontend will submit these as a Form)
+
+        # 6. Return params to Frontend
         return JsonResponse({
             "key": settings.PAYU_MERCHANT_KEY,
             "txnid": txnid,
-            "amount": total_amount,
+            "amount": amount_str,
             "productinfo": productinfo,
             "firstname": firstname,
             "email": email,
-            "udf1": udf1,
+            "udf1": udf1, # User ID sent to PayU
+            "udf2": udf2, # Address ID sent to PayU
             "phone": "9999999999",
-            "surl": "http://127.0.0.1:8000/api/payu/success/", # Success URL
-            "furl": "http://127.0.0.1:8000/api/payu/failure/", # Failure URL
+            "surl": "http://127.0.0.1:8000/api/payu/success/", # Backend Success URL
+            "furl": "http://127.0.0.1:8000/api/payu/failure/", # Backend Failure URL
             "hash": hash_value,
             "action": settings.PAYU_BASE_URL,
-            "address_id": address_id,
-            "udf2": udf2
-
         })
 
 @csrf_exempt
@@ -688,52 +721,75 @@ def payu_success(request):
     if request.method == "POST":
         data = request.POST
         
-        # 1. Retrieve the User ID from 'udf1'
+        # 1. Retrieve Data sent back by PayU
         user_id = data.get('udf1')
-        user = get_object_or_404(User, pk=user_id)
+        address_id = data.get('udf2')
+        txn_id = data.get('txnid')
         
-        # 2. Get the User's Cart
+        # 2. Get User Safely
+        try:
+            user = User.objects.get(pk=user_id)
+        except (User.DoesNotExist, TypeError):
+            # If user data is lost, redirect to home
+            return redirect("http://localhost:5173/") 
+
+        # 3. 👇 CRITICAL FIX: Use 'filter().first()' instead of 'get_object_or_404'
+        # This prevents the 404 Crash if the address was deleted during testing.
+        address = Address.objects.filter(pk=address_id).first()
+        
+        # Fallback: If the specific address is gone, grab the user's first available address
+        if not address:
+            address = Address.objects.filter(user=user).first()
+            
+        # 4. Process Order
         cart = getattr(user, 'cart', None)
-        if not cart or not cart.items.exists():
-            # If cart is already empty, just redirect
-            return redirect("http://localhost:5173/success")
-
-        # 3. Create the Order
-        # Note: You might want to grab a real address here. 
-        # For now, we pick the first address or creating a dummy placeholder if none exists.
-        address = Address.objects.filter(user=user).first()
         
-        with transaction.atomic():
-            total = sum([item.product.price * item.quantity for item in cart.items.all()])
-            
-            order = Order.objects.create(
-                user=user, 
-                address=address, # Ensure address is not None in production
-                total_amount=total,
-                status="Paid", # Mark as paid
-                # You can store the PayU transaction ID if your model has the field
-                # transaction_id=data.get('txnid') 
-            )
-            
-            # Create Order Items
-            items = [
-                OrderItem(
-                    order=order, 
-                    product=item.product, 
-                    quantity=item.quantity, 
-                    unit_price=item.product.price
-                ) for item in cart.items.all()
-            ]
-            OrderItem.objects.bulk_create(items)
-            
-            # 4. 🗑️ CLEAR THE CART (The specific request)
-            cart.items.all().delete()
+        # If cart is empty (already processed) or missing, just redirect to orders
+        if not cart or not cart.items.exists():
+            return redirect("http://localhost:5173/Success")
 
-        # 5. Redirect to Frontend Orders Page
-        return redirect("http://localhost:5173/success")
+        try:
+            with transaction.atomic():
+                # Calculate Total
+                total = sum([item.product.price * item.quantity for item in cart.items.all()])
+                
+                # Create Order (Allow address to be None if absolutely necessary)
+                order = Order.objects.create(
+                    user=user, 
+                    address=address, 
+                    total_amount=total,
+                    status="Paid",
+                    payment_id=txn_id
+                )
+                
+                # Move Cart Items -> Order Items
+                items = [
+                    OrderItem(
+                        order=order, 
+                        product=item.product, 
+                        quantity=item.quantity, 
+                        unit_price=item.product.price
+                    ) for item in cart.items.all()
+                ]
+                OrderItem.objects.bulk_create(items)
+                
+                # Clear Cart
+                cart.items.all().delete()
+
+            # 5. ✅ Redirect to React Frontend Success Page
+            return redirect("http://localhost:5173/Success")
+            
+        except Exception as e:
+            print(f"Order Creation Error: {e}")
+            # Redirect to cart if something goes wrong
+            return redirect("http://localhost:5173/cart")
+            
+    # If not POST, go home
+    return redirect("http://localhost:5173/")
 
 @csrf_exempt
 def payu_failure(request):
+    # Redirect back to frontend cart on failure
     return redirect("http://localhost:5173/cart")
 
 # ----------------------------

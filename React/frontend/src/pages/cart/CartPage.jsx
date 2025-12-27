@@ -1,9 +1,12 @@
 import { useEffect, useState } from 'react';
 import { Container, Table, Button, Alert, Image } from 'react-bootstrap';
 import { cartService, orderService } from '../../services/api';
+import { useNavigate } from 'react-router-dom'; 
+
 
 const CartPage = () => {
     const [cartItems, setCartItems] = useState([]);
+    const navigate = useNavigate(); // 2. Initialize Hook
 
     useEffect(() => {
         cartService.get().then(res => setCartItems(res.data.items)).catch(console.error);
@@ -14,18 +17,8 @@ const CartPage = () => {
         setCartItems(cartItems.filter(item => item.id !== id));
     };
 
-    const checkout = async () => {
-        const addressId = prompt("Please enter your Address ID for delivery (e.g., 1):");
-        if (!addressId) return;
-        
-        try {
-            await orderService.create(addressId);
-            alert("Order placed successfully! 🚀");
-            setCartItems([]);
-        } catch (err) {
-            console.log(err)
-            alert("Order failed. Check console.");
-        }
+    const checkout = () => {
+        navigate('/checkout'); 
     };
 
     const calculateTotal = () => {

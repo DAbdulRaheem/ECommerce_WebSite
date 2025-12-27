@@ -100,6 +100,7 @@ const ProductList = () => {
 
     return (
         <Container fluid className="mt-3 px-4">
+            <h3>Filters</h3>
             <Row>
                 {/* --- SIDEBAR FILTERS --- */}
                 <Col md={2} className="d-none d-md-block">
